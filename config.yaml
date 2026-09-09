@@ -1,0 +1,69 @@
+# Knobs de config pour le pipeline. Valeurs indicatives à ajuster
+# expérimentalement — voir ARCHITECTURE.md pour le raisonnement derrière
+# chaque défaut.
+
+chunking:
+  strategy: heading        # "heading" | "fixed_tokens"
+  max_tokens_per_chunk: 512
+  overlap_ratio: 0.15
+  keep_code_blocks_atomic: true
+
+embedding:
+  dense:
+    # "ollama" ou "sentence_transformers"
+    backend: sentence_transformers
+    model_name: Qwen/Qwen3-Embedding-0.6B
+    normalize: true
+    vector_name: dense        # nom du vecteur nommé côté Qdrant
+  sparse:
+    # "fastembed" (BM25, pas d'entraînement, CPU) | "splade" (learned sparse, plus lourd)
+    backend: fastembed
+    model_name: Qdrant/bm25
+    vector_name: sparse        # nom du vecteur nommé côté Qdrant
+
+vector_store:
+  backend: qdrant            # "qdrant" | "chroma" | "lancedb"
+  collection_name: onenote_cs
+  # Mode embarqué local (pas besoin de Docker/serveur) :
+  # qdrant_client.QdrantClient(path=persist_dir)
+  persist_dir: ./data/index
+  # Si tu préfères lancer un serveur Qdrant (Docker) plutôt que le mode
+  # embarqué, laisse persist_dir vide et remplis host/port à la place :
+  host: ""
+  port: 6333
+  distance: cosine           # "cosine" | "dot" | "euclid"  (pour le vecteur dense)
+
+retrieval:
+  hybrid: true               # false => dense uniquement
+  dense_top_k: 30            # candidats remontés par la branche dense
+  sparse_top_k: 30           # candidats remontés par la branche sparse (BM25)
+  fusion: rrf                # "rrf" (Reciprocal Rank Fusion) | "dbsf"
+  fused_top_k: 20            # combien de candidats fusionnés on garde avant reranking
+  top_k_final: 5             # nombre de chunks gardés après reranking
+
+reranker:
+  backend: sentence_transformers   # "sentence_transformers" | "qwen3_reranker"
+  model_name: BAAI/bge-reranker-v2-m3
+
+generation:
+  # "transformers" (poids HF chargés directement, pas d'Ollama nécessaire)
+  # ou "ollama" si tu remontes un serveur Ollama plus tard
+  backend: transformers
+  model_name: Qwen/Qwen2.5-1.5B-Instruct   # déjà en cache localement
+  temperature: 0.2
+  max_new_tokens: 512
+  max_context_chunks: 5
+
+evaluation:
+  # RAGAS a besoin d'un LLM "juge" + d'un modèle d'embedding — configurés ici
+  # pour pointer vers ton setup local plutôt que vers OpenAI (défaut de ragas).
+  judge_llm_backend: transformers
+  judge_llm_model: Qwen/Qwen2.5-1.5B-Instruct  # même modèle que "generation", ou un plus gros si dispo
+  judge_embedding_model: Qwen/Qwen3-Embedding-0.6B
+  dataset_path: ./eval/qa_dataset.jsonl
+  results_dir: ./eval/results
+  metrics:
+    - faithfulness
+    - answer_relevancy
+    - context_precision
+    - context_recall

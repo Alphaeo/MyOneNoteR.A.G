@@ -1,0 +1,45 @@
+# Liste indicative — ajuste selon les choix que tu fais dans chaque étape.
+# (voir ARCHITECTURE.md pour les alternatives)
+
+# --- Extraction OneNote / Graph API ---
+msal              # auth device-code flow contre Azure AD
+requests
+
+# --- Parsing HTML -> Markdown ---
+beautifulsoup4
+markdownify
+
+# --- Config / env ---
+python-dotenv
+pyyaml
+
+# --- Embeddings dense & reranking (si tu passes par sentence-transformers plutôt qu'Ollama) ---
+sentence-transformers
+torch
+
+# --- Embeddings sparse (BM25 / SPLADE) pour le hybrid search ---
+fastembed
+
+# --- Base vectorielle ---
+qdrant-client
+# chromadb             # si tu choisis Chroma à la place de Qdrant
+# lancedb              # si tu choisis LanceDB à la place de Qdrant
+
+# --- Génération via transformers (Qwen2.5-1.5B-Instruct, déjà en cache HF) ---
+transformers          # (déjà installé comme dépendance de sentence-transformers, mais listé ici explicitement)
+# ollama              # décommente si tu remontes un serveur Ollama plus tard à la place
+
+# --- Évaluation RAGAS ---
+ragas
+datasets              # format de dataset attendu par ragas.evaluate()
+langchain-huggingface # wrapper pour brancher ragas sur ton LLM local via transformers (HuggingFacePipeline)
+# ragas 0.4.3 importe encore un ancien chemin (langchain_community.chat_models.vertexai)
+# supprimé dans langchain-community>=0.4.0 -> plante à l'import sinon.
+langchain-community==0.3.31
+
+# --- Interface locale ---
+gradio                # UI de chat locale (src/app.py), enveloppe retrieve()+generate_answer()
+
+# --- Confort ---
+rich                  # affichage CLI
+tqdm                  # barres de progression

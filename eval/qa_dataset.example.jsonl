@@ -1,0 +1,2 @@
+{"question": "Quelle est la complexité temporelle moyenne d'un tri rapide (quicksort) ?", "ground_truth": "O(n log n) en moyenne, O(n^2) dans le pire cas."}
+{"question": "Quelle est la différence entre un processus et un thread ?", "ground_truth": "Un processus a son propre espace mémoire isolé ; un thread partage l'espace mémoire de son processus parent, ce qui rend la communication entre threads plus rapide mais plus risquée (races conditions)."}
