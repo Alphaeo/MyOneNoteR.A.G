@@ -6,10 +6,11 @@ Entrée  : eval/qa_dataset.jsonl (questions + réponses de référence, ÉCRITES
 Sortie  : eval/results/ (scores par métrique, par question et en moyenne)
 
 RAGAS par défaut appelle l'API OpenAI pour son LLM juge et ses embeddings.
-Ici on le configure explicitement pour utiliser ton setup local via
-transformers (Qwen2.5-1.5B-Instruct, le même modèle que pour generate.py —
-réutilisé tel quel, pas rechargé) plutôt qu'Ollama (jamais installé sur
-cette machine) — sinon ça échouera sans clé API.
+Ici on le configure explicitement pour utiliser ton setup local : le juge
+LLM passe par Ollama (même modèle Qwen2.5 que generate.py, bien plus rapide
+sur CPU que les poids transformers bruts), et l'embedding juge (nécessaire
+pour answer_relevancy) reste sur Qwen3-Embedding via transformers — sinon
+ça échouera sans clé API.
 """
 import json
 import os
@@ -19,11 +20,11 @@ from retrieve_rerank import retrieve
 from generate import build_system_prompt, build_user_message, generate_answer, load_generation_model
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from fastembed import SparseTextEmbedding
-from transformers import pipeline as hf_pipeline
 from ragas import evaluate
 from ragas.metrics.collections import faithfulness, answer_relevancy, context_precision, context_recall
 from datasets import Dataset
-from langchain_huggingface import HuggingFacePipeline, HuggingFaceEmbeddings
+from langchain_ollama import ChatOllama
+from langchain_huggingface import HuggingFaceEmbeddings
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 
@@ -43,19 +44,20 @@ def load_eval_dataset(path: str) -> list[dict]:
 #   Collecter {"question", "answer", "contexts", "ground_truth"} pour
 #   chaque ligne.
 #
-#   Les modèles (dense_model, sparse_model, cross_encoder, tokenizer, model)
-#   doivent être chargés UNE FOIS par main() et passés ici en paramètres —
-#   pas rechargés à chaque question du dataset.
+#   Les modèles (dense_model, sparse_model, cross_encoder) doivent être
+#   chargés UNE FOIS par main() et passés ici en paramètres — pas rechargés
+#   à chaque question du dataset. model_name ne nécessite pas de chargement
+#   (Ollama gère ça côté serveur).
 
 
-def run_pipeline_on_dataset(qa_pairs: list[dict], config: dict, dense_model, sparse_model, cross_encoder, tokenizer, model) -> list[dict]:
+def run_pipeline_on_dataset(qa_pairs: list[dict], config: dict, dense_model, sparse_model, cross_encoder, model_name: str) -> list[dict]:
     system_prompt = build_system_prompt()
     results = []
     for qa in qa_pairs:
         question = qa["question"]
         chunks = retrieve(question, config, dense_model, sparse_model, cross_encoder)
         user_message = build_user_message(question, chunks, config)
-        answer = generate_answer(system_prompt, user_message, tokenizer, model, config)
+        answer = generate_answer(system_prompt, user_message, model_name, config)
         results.append({
             "question": question,
             "answer": answer,
@@ -75,22 +77,18 @@ def build_ragas_dataset(results: list[dict]):
     ])
 
 
-# TODO 4 — Configurer le LLM juge et les embeddings pour pointer vers ton
-#   setup local (transformers) plutôt qu'OpenAI.
-#   Le juge réutilise le tokenizer/model déjà chargés pour generate_answer()
-#   (même modèle Qwen2.5) — pas de rechargement, RAM limitée sur cette
-#   machine. Seul l'embedding juge (nécessaire pour answer_relevancy)
-#   nécessite un chargement séparé.
+# Le juge LLM passe par Ollama (même modèle que generate.py, pas de
+# rechargement/duplication puisque Ollama sert déjà le modèle en arrière-plan
+# indépendamment du process Python). L'embedding juge (nécessaire pour
+# answer_relevancy) reste chargé séparément via transformers.
 
 
-def build_ragas_judges(config: dict, tokenizer, model):
-    text_gen_pipeline = hf_pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_new_tokens=config["generation"]["max_new_tokens"],
-    )
-    judge_llm = LangchainLLMWrapper(HuggingFacePipeline(pipeline=text_gen_pipeline))
+def build_ragas_judges(config: dict, model_name: str):
+    judge_llm = LangchainLLMWrapper(ChatOllama(
+        model=model_name,
+        base_url=config["generation"]["ollama_base_url"],
+        temperature=config["generation"]["temperature"],
+    ))
     judge_embeddings = LangchainEmbeddingsWrapper(
         HuggingFaceEmbeddings(model_name=config["evaluation"]["judge_embedding_model"])
     )
@@ -133,13 +131,13 @@ def main() -> None:
     dense_model = SentenceTransformer(config["embedding"]["dense"]["model_name"])
     sparse_model = SparseTextEmbedding(model_name=config["embedding"]["sparse"]["model_name"])
     cross_encoder = CrossEncoder(config["reranker"]["model_name"], model_kwargs={"dtype": "bfloat16"})
-    tokenizer, model = load_generation_model(config)
+    model_name = load_generation_model(config)
 
     print(f"Exécution du pipeline sur {len(qa_pairs)} questions...")
-    results = run_pipeline_on_dataset(qa_pairs, config, dense_model, sparse_model, cross_encoder, tokenizer, model)
+    results = run_pipeline_on_dataset(qa_pairs, config, dense_model, sparse_model, cross_encoder, model_name)
     dataset = build_ragas_dataset(results)
 
-    judge_llm, judge_embeddings = build_ragas_judges(config, tokenizer, model)
+    judge_llm, judge_embeddings = build_ragas_judges(config, model_name)
 
     print("Évaluation RAGAS...")
     run_evaluation(dataset, judge_llm, judge_embeddings, config)

@@ -1,16 +1,15 @@
 """
-Étape 6 — Génération de la réponse avec Qwen2.5-1.5B-Instruct local (via
-transformers, poids déjà en cache HF — pas d'Ollama), à partir des chunks
-rerankés par retrieve_rerank.py.
+Étape 6 — Génération de la réponse avec Qwen2.5-1.5B local via Ollama
+(GGUF quantifié, bien plus rapide sur CPU que les poids transformers bruts —
+voir ARCHITECTURE.md), à partir des chunks rerankés par retrieve_rerank.py.
 
 CLI simple : boucle de questions/réponses dans le terminal.
 
-Comme pour les modèles d'embedding/reranking, le modèle de génération doit
-être chargé UNE SEULE FOIS (dans main(), avant la boucle de chat) et passé
-en paramètre aux fonctions qui l'utilisent — pas rechargé à chaque question.
+Prérequis : `ollama pull qwen2.5:1.5b` (ou le modèle configuré dans
+config.yaml) et le serveur Ollama démarré (il tourne en arrière-plan après
+installation sur Windows).
 """
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import json
+import ollama
 import yaml
 from retrieve_rerank import retrieve
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -54,45 +53,28 @@ def build_user_message(question: str, chunks: list[dict], config : dict) -> str:
     return f"Contexte :\n{context}\n\n---\n\nQuestion : {question}"
 
 
-# TODO 3a — Charger le tokenizer + le modèle UNE FOIS (appelé dans main(),
-#   pas dans la boucle de chat) :
-#   from transformers import AutoModelForCausalLM, AutoTokenizer
-#   tokenizer = AutoTokenizer.from_pretrained(config["generation"]["model_name"])
-#   model = AutoModelForCausalLM.from_pretrained(config["generation"]["model_name"])
-#   Retourner (tokenizer, model).
+# Ollama gère lui-même le chargement/cache du modèle côté serveur — pas de
+# vrai "chargement" côté client ici, juste le nom du modèle à réutiliser
+# partout (pattern conservé pour cohérence avec les autres load_* du projet).
 
 
-def load_generation_model(config: dict):
-    tokenizer = AutoTokenizer.from_pretrained(config["generation"]["model_name"])
-    # bfloat16 plutôt que float32 par défaut : ~moitié moins de RAM, important
-    # sur une machine avec peu de RAM libre (voir contrainte notée ailleurs).
-    model = AutoModelForCausalLM.from_pretrained(config["generation"]["model_name"], dtype="bfloat16")
-    return tokenizer, model
+def load_generation_model(config: dict) -> str:
+    return config["generation"]["model_name"]
 
 
-# TODO 3b — Générer la réponse avec le modèle déjà chargé.
-#   Qwen2.5-Instruct a un chat template intégré dans son tokenizer :
-#   messages = [{"role": "system", "content": system_prompt},
-#               {"role": "user", "content": user_message}]
-#   input_ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
-#   output_ids = model.generate(input_ids, max_new_tokens=config["generation"]["max_new_tokens"],
-#                                temperature=config["generation"]["temperature"], do_sample=True)
-#   Ne décoder QUE les tokens générés (pas le prompt réinjecté) :
-#   response = tokenizer.decode(output_ids[0][input_ids.shape[-1]:], skip_special_tokens=True)
-
-
-def generate_answer(system_prompt: str, user_message: str, tokenizer, model, config: dict) -> str:
-    messages = [{"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}]
-    # apply_chat_template(..., return_tensors="pt") retourne un BatchEncoding
-    # (dict-like), pas un tensor brut, sur les versions récentes de
-    # transformers — on le déballe avec **inputs plutôt que de le passer
-    # directement en premier argument positionnel.
-    inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
-    output_ids = model.generate(**inputs, max_new_tokens=config["generation"]["max_new_tokens"],
-                                 temperature=config["generation"]["temperature"], do_sample=True)
-    response = tokenizer.decode(output_ids[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
-    return response
+def generate_answer(system_prompt: str, user_message: str, model_name: str, config: dict) -> str:
+    response = ollama.chat(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        options={
+            "temperature": config["generation"]["temperature"],
+            "num_predict": config["generation"]["max_new_tokens"],
+        },
+    )
+    return response["message"]["content"]
 
 
 # TODO 4 — Boucle CLI :
@@ -112,7 +94,7 @@ def main() -> None:
     dense_model = SentenceTransformer(config["embedding"]["dense"]["model_name"])
     sparse_model = SparseTextEmbedding(model_name=config["embedding"]["sparse"]["model_name"])
     cross_encoder = CrossEncoder(config["reranker"]["model_name"], model_kwargs={"dtype": "bfloat16"})
-    tokenizer, model = load_generation_model(config)
+    model_name = load_generation_model(config)
     system_prompt = build_system_prompt()
 
     print("Prêt. Pose ta question (Ctrl+C pour quitter).")
@@ -120,7 +102,7 @@ def main() -> None:
         question = input("\n> ")
         chunks = retrieve(question, config, dense_model, sparse_model, cross_encoder)
         user_message = build_user_message(question, chunks, config)
-        answer = generate_answer(system_prompt, user_message, tokenizer, model, config)
+        answer = generate_answer(system_prompt, user_message, model_name, config)
         print(f"\n{answer}")
         sources = sorted({c["page_title"] for c in chunks})
         print(f"\nSources : {', '.join(sources)}")

@@ -44,11 +44,14 @@ what actually changed.
    - API permissions → Microsoft Graph → Delegated → `Notes.Read`
    - Note the `Application (client) ID` → put it in `.env`
 
-2. **Qwen, running locally** (no Ollama on this setup — everything goes
-   through `transformers`/`sentence-transformers`, Hugging Face weights):
+2. **Qwen, running locally**:
    - Dense embedding: `Qwen/Qwen3-Embedding-0.6B` (via `sentence-transformers`)
    - Reranker: `BAAI/bge-reranker-v2-m3` (`sentence_transformers.CrossEncoder`)
-   - Generation: `Qwen/Qwen2.5-1.5B-Instruct` (via `transformers`)
+   - Generation: **Ollama** + `qwen2.5:1.5b` (GGUF, quantized — far faster on
+     CPU than raw transformers weights). Install
+     [Ollama](https://ollama.com/) (`winget install Ollama.Ollama` on
+     Windows), then `ollama pull qwen2.5:1.5b`. The Ollama server runs in
+     the background after install/on login.
 
 3. **Python environment**:
    - `python -m venv .venv` then activate it

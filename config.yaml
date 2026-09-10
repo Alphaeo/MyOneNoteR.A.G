@@ -38,7 +38,7 @@ retrieval:
   dense_top_k: 30            # candidats remontés par la branche dense
   sparse_top_k: 30           # candidats remontés par la branche sparse (BM25)
   fusion: rrf                # "rrf" (Reciprocal Rank Fusion) | "dbsf"
-  fused_top_k: 20            # combien de candidats fusionnés on garde avant reranking
+  fused_top_k: 10            # combien de candidats fusionnés on garde avant reranking (réduit de 20 : le reranker score chaque candidat, moitié moins de travail)
   top_k_final: 5             # nombre de chunks gardés après reranking
 
 reranker:
@@ -46,19 +46,20 @@ reranker:
   model_name: BAAI/bge-reranker-v2-m3
 
 generation:
-  # "transformers" (poids HF chargés directement, pas d'Ollama nécessaire)
-  # ou "ollama" si tu remontes un serveur Ollama plus tard
-  backend: transformers
-  model_name: Qwen/Qwen2.5-1.5B-Instruct   # déjà en cache localement
+  # "ollama" (llama.cpp sous le capot, GGUF quantifié, bien plus rapide sur
+  # CPU que "transformers") ou "transformers" (poids HF bruts, plus lent)
+  backend: ollama
+  model_name: qwen2.5:1.5b   # pullé via `ollama pull qwen2.5:1.5b`
+  ollama_base_url: http://localhost:11434
   temperature: 0.2
-  max_new_tokens: 512
+  max_new_tokens: 180        # réduit de 512 : le temps de génération est quasi-linéaire à ce nombre
   max_context_chunks: 5
 
 evaluation:
   # RAGAS a besoin d'un LLM "juge" + d'un modèle d'embedding — configurés ici
   # pour pointer vers ton setup local plutôt que vers OpenAI (défaut de ragas).
-  judge_llm_backend: transformers
-  judge_llm_model: Qwen/Qwen2.5-1.5B-Instruct  # même modèle que "generation", ou un plus gros si dispo
+  judge_llm_backend: ollama
+  judge_llm_model: qwen2.5:1.5b  # même modèle que "generation", ou un plus gros si dispo
   judge_embedding_model: Qwen/Qwen3-Embedding-0.6B
   dataset_path: ./eval/qa_dataset.jsonl
   results_dir: ./eval/results

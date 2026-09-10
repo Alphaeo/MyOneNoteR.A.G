@@ -205,6 +205,22 @@ def delete_page_from_index(page_id: str, config: dict, qdrant_client: QdrantClie
 #      les pages présentes dans data/processed/chunks/*.jsonl comme "added"
 
 
+def page_already_indexed(page_id: str, config: dict, qdrant_client: QdrantClient) -> bool:
+    """Vrai si des points de cette page existent déjà dans la collection.
+    Permet de reprendre un run interrompu sans tout réembedder depuis zéro —
+    important ici car les runs se font couper avant la fin (session/process
+    tués en cours de route) et repartaient sinon toujours de la page 1."""
+    collection_name = config["vector_store"]["collection_name"]
+    if not qdrant_client.collection_exists(collection_name):
+        return False
+    count = qdrant_client.count(
+        collection_name,
+        count_filter=models.Filter(must=[models.FieldCondition(
+            key="page_id", match=models.MatchValue(value=page_id))]),
+    )
+    return count.count > 0
+
+
 def load_last_sync(path: str = "data/raw/last_sync.json") -> dict | None:
     if not os.path.exists(path):
         return None
@@ -232,13 +248,19 @@ def main() -> None:
     for page_id in last_sync["modified"] + last_sync["deleted"]:
         delete_page_from_index(page_id, config, qdrant_client)
 
-    for page_id in last_sync["added"] + last_sync["modified"]:
+    to_process = last_sync["added"] + last_sync["modified"]
+    skipped = 0
+    for i, page_id in enumerate(to_process, 1):
+        if page_already_indexed(page_id, config, qdrant_client):
+            skipped += 1
+            continue
         chunks = load_chunks_for_page(page_id)
         dense_vectors, sparse_vectors = embed_chunks(chunks, embed_dense, embed_sparse)
         index_chunks(chunks, dense_vectors, sparse_vectors, config, qdrant_client)
+        print(f"[{i}/{len(to_process)}] {page_id} indexée", flush=True)
 
     qdrant_client.close()
-    print(f"{len(last_sync['added'])} pages indexées, {len(last_sync['modified'])} mises à jour, {len(last_sync['deleted'])} supprimées")
+    print(f"{len(last_sync['added'])} pages à traiter, {skipped} déjà indexées (sautées), {len(last_sync['deleted'])} supprimées")
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ config = load_config()
 dense_model = SentenceTransformer(config["embedding"]["dense"]["model_name"])
 sparse_model = SparseTextEmbedding(model_name=config["embedding"]["sparse"]["model_name"])
 cross_encoder = CrossEncoder(config["reranker"]["model_name"], model_kwargs={"dtype": "bfloat16"})
-tokenizer, model = load_generation_model(config)
+model_name = load_generation_model(config)
 system_prompt = build_system_prompt()
 print("Modèles chargés, interface prête.")
 
@@ -34,7 +34,7 @@ print("Modèles chargés, interface prête.")
 def respond(message: str, history: list[dict]) -> str:
     chunks = retrieve(message, config, dense_model, sparse_model, cross_encoder)
     user_message = build_user_message(message, chunks, config)
-    answer = generate_answer(system_prompt, user_message, tokenizer, model, config)
+    answer = generate_answer(system_prompt, user_message, model_name, config)
 
     sources = sorted({c["page_title"] for c in chunks})
     if sources:
@@ -44,7 +44,6 @@ def respond(message: str, history: list[dict]) -> str:
 
 demo = gr.ChatInterface(
     respond,
-    type="messages",
     title="OneNoteRAG — Computer Science",
     description="Pose une question sur tes notes OneNote (thème Computer Science).",
     examples=[

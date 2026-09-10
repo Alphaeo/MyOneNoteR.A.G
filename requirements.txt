@@ -25,14 +25,17 @@ qdrant-client
 # chromadb             # si tu choisis Chroma à la place de Qdrant
 # lancedb              # si tu choisis LanceDB à la place de Qdrant
 
-# --- Génération via transformers (Qwen2.5-1.5B-Instruct, déjà en cache HF) ---
-transformers          # (déjà installé comme dépendance de sentence-transformers, mais listé ici explicitement)
-# ollama              # décommente si tu remontes un serveur Ollama plus tard à la place
+# --- Génération via Ollama (qwen2.5:1.5b, GGUF quantifié — bien plus rapide
+#     sur CPU que les poids transformers bruts). Installer Ollama à part
+#     (https://ollama.com/, `winget install Ollama.Ollama` sur Windows) puis
+#     `ollama pull qwen2.5:1.5b`. ---
+ollama                # client python officiel de l'API Ollama
 
 # --- Évaluation RAGAS ---
 ragas
 datasets              # format de dataset attendu par ragas.evaluate()
-langchain-huggingface # wrapper pour brancher ragas sur ton LLM local via transformers (HuggingFacePipeline)
+langchain-ollama      # wrapper pour brancher le juge RAGAS sur Ollama (ChatOllama)
+langchain-huggingface # wrapper pour l'embedding juge (HuggingFaceEmbeddings, answer_relevancy)
 # ragas 0.4.3 importe encore un ancien chemin (langchain_community.chat_models.vertexai)
 # supprimé dans langchain-community>=0.4.0 -> plante à l'import sinon.
 langchain-community==0.3.31

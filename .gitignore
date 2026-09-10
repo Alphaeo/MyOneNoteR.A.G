@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 token_cache.bin
 
+# Logs de debug (redirections de process detaches)
+*_log.txt
+*_err.txt
+
 # Contenu personnel extrait de OneNote — ne pas versionner
 data/raw/*
 data/processed/*
